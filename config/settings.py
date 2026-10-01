@@ -94,6 +94,7 @@ CACHES = {
     }
 }
 
+# Vehicle assumptions used throughout the fuel cost calculations
 VEHICLE_MAX_RANGE_MILES = 500
 VEHICLE_MPG = 10
 TANK_SIZE_GALLONS = VEHICLE_MAX_RANGE_MILES / VEHICLE_MPG

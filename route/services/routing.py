@@ -6,6 +6,7 @@ logger = logging.getLogger(__name__)
 
 OSRM_BASE_URL = "http://router.project-osrm.org"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+# Nominatim requires a non-empty User-Agent or it will reject requests
 NOMINATIM_HEADERS = {
     "User-Agent": "FuelRouteAPI/1.0",
     "Accept-Language": "en",
@@ -56,6 +57,7 @@ def get_route(start_location: str, end_location: str) -> dict:
     start_lon, start_lat = get_coordinates_from_location(start_location)
     end_lon, end_lat = get_coordinates_from_location(end_location)
 
+    # OSRM expects coordinates as lon,lat pairs separated by semicolons
     url = f"{OSRM_BASE_URL}/route/v1/driving/{start_lon},{start_lat};{end_lon},{end_lat}"
     resp = requests.get(
         url,
@@ -74,7 +76,7 @@ def get_route(start_location: str, end_location: str) -> dict:
     lats = [c[1] for c in coordinates]
 
     result = {
-        "distance_miles": route["distance"] * 0.000621371,
+        "distance_miles": route["distance"] * 0.000621371,  # meters to miles
         "duration_seconds": route["duration"],
         "geometry": route["geometry"],
         "waypoints": coordinates,

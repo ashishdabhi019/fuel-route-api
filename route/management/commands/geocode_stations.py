@@ -65,6 +65,8 @@ class Command(BaseCommand):
             coords = city_coords.get((city, state))
 
             if not coords:
+                # Some stations use full spellings that the cities DB has abbreviated,
+                # e.g. "Saint Louis" vs "St. Louis". Try the short forms before giving up.
                 alt = (
                     city
                     .replace("saint ", "st. ")

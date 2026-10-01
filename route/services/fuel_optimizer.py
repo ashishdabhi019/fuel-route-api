@@ -11,8 +11,12 @@ logger = logging.getLogger(__name__)
 MAX_RANGE_MILES = settings.VEHICLE_MAX_RANGE_MILES
 MPG = settings.VEHICLE_MPG
 TANK_GALLONS = settings.TANK_SIZE_GALLONS
-ROUTE_SAMPLE_RATE = 30
 CORRIDOR_MILES = 75
+
+# OSRM returns ~30 waypoints per mile for US highways. Sampling every 30th point
+# gives us roughly one point per mile — accurate enough for station matching and
+# about 30x faster than processing the full geometry.
+ROUTE_SAMPLE_RATE = 30
 
 
 def haversine_miles(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
@@ -30,6 +34,7 @@ def simplify_route(waypoints: list[list[float]]) -> list[list[float]]:
     if len(waypoints) <= ROUTE_SAMPLE_RATE * 2:
         return waypoints
     indices = list(range(0, len(waypoints), ROUTE_SAMPLE_RATE))
+    # Always include the last point so the cumulative distance reaches the true end
     if indices[-1] != len(waypoints) - 1:
         indices.append(len(waypoints) - 1)
     return [waypoints[i] for i in indices]
@@ -64,8 +69,11 @@ def project_stations_onto_route(
     for station in stations:
         slat, slon = station["latitude"], station["longitude"]
         dlat = wp_lats - slat
+        # Longitude degrees shrink as you move away from the equator, so we scale
+        # by cos(lat) to make the east-west distances comparable to north-south ones.
         dlon = (wp_lons - slon) * math.cos(math.radians(slat))
         nearest_idx = int(np.argmin(dlat ** 2 + dlon ** 2))
+        # Convert from degrees to miles (1 degree latitude ≈ 69 miles)
         perp_miles = math.sqrt(float(dlat[nearest_idx] ** 2 + dlon[nearest_idx] ** 2)) * 69.0
 
         if perp_miles > CORRIDOR_MILES:
@@ -82,6 +90,8 @@ def project_stations_onto_route(
 
 def get_stations_in_bbox(bbox: list[float]) -> list[dict]:
     min_lon, min_lat, max_lon, max_lat = bbox
+    # Add a 0.5-degree buffer (~35 miles) so we don't miss stations right at the
+    # edge of the bounding box, especially on diagonal routes.
     buffer = 0.5
     qs = FuelStation.objects.filter(
         geocoded=True,
@@ -120,6 +130,9 @@ def select_fuel_stops(stations: list[dict], total_miles: float) -> list[dict]:
             logger.warning(f"No stations between {current_pos:.0f} and {reachable_limit:.0f} miles")
             break
 
+        # Filter to stations we can actually continue from — i.e. the destination
+        # or at least one more station is reachable after stopping there.
+        # Without this, we might pick a cheap station that leaves us stranded.
         valid = [
             s for s in candidates
             if s["route_distance_miles"] + MAX_RANGE_MILES >= total_miles
@@ -129,6 +142,7 @@ def select_fuel_stops(stations: list[dict], total_miles: float) -> list[dict]:
             )
         ]
 
+        # Fall back to any candidate if the valid filter comes up empty (sparse coverage)
         best = min(valid or candidates, key=lambda x: x["retail_price"])
 
         miles_to_stop = best["route_distance_miles"] - current_pos
