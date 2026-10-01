@@ -1,93 +1,210 @@
-# Fuel Route API 🚛⛽
+# Fuel Route API
 
-A high-performance Django REST API that computes optimal fuel stops for a road trip across the USA, minimizing total fuel cost while respecting a 500-mile vehicle range.
+A Django REST API that plans an optimal, cost-effective fuel stop itinerary for any road trip within the United States.
 
-## Features
+Given a start and end location, the API returns a list of recommended fuel stations along the route, chosen to minimize total fuel spend while ensuring the vehicle never runs out of fuel. It also returns the full route geometry and an interactive map link.
 
-- 🗺️ **Routing**: Uses [OSRM](http://project-osrm.org/) (100% free, no API key needed) for accurate driving directions
-- ⛽ **Fuel Optimization**: Greedy cheapest-in-range algorithm finds the lowest-cost fuel stops
-- 📊 **8,000+ Stations**: Pre-loaded from OPIS truck stop database with real fuel prices
-- 🔄 **Caching**: Route results cached for 1 hour; geocodes cached for 24 hours
-- ⚡ **Fast**: ~0.25s for first request (uncached), ~0.07s for cached routes
-- 🗺️ **Interactive Map**: Returns a [geojson.io](https://geojson.io) URL to visualize route + stops
+---
 
-## Architecture
+## Project Structure
 
 ```
-┌─────────────────────────────────────────────┐
-│                  Django API                   │
-│  GET/POST /api/route/?start=...&end=...       │
-└─────────────────────────────────────────────┘
-         │                │
-         ▼                ▼
-   [Nominatim]       [File Cache]
-   Geocode start/     (1h TTL)
-   end locations
-         │
-         ▼
-    [OSRM API]  ← 1 API call for full route geometry
-         │
-         ▼
-   [SQLite DB]  ← Query 6,800+ geocoded fuel stations
-         │
-         ▼
-  [NumPy Optimizer]  ← Vectorized spatial projection
-         │           + greedy cheapest-in-range stops
-         ▼
-   JSON Response
+fuel_route_api/                  <- project root
+|
+|-- config/                      <- Django project settings package
+|   |-- __init__.py
+|   |-- settings.py
+|   |-- urls.py
+|   |-- asgi.py
+|   `-- wsgi.py
+|
+|-- route/                       <- main application
+|   |-- management/
+|   |   `-- commands/
+|   |       |-- load_fuel_data.py     <- imports CSV into database
+|   |       `-- geocode_stations.py   <- assigns lat/lon to stations
+|   |-- migrations/
+|   |-- services/
+|   |   |-- routing.py           <- OSRM + Nominatim integration
+|   |   |-- fuel_optimizer.py    <- stop selection algorithm
+|   |   `-- map_builder.py       <- generates map URLs
+|   |-- admin.py
+|   |-- apps.py
+|   |-- models.py
+|   |-- serializers.py
+|   |-- urls.py
+|   `-- views.py
+|
+|-- manage.py
+|-- requirements.txt
+|-- .env                         <- environment variables (not committed)
+`-- README.md
 ```
 
-### External API Calls Per Request
-| Call | Purpose | Cached |
-|------|---------|--------|
-| Nominatim #1 | Geocode start location | ✅ 24h |
-| Nominatim #2 | Geocode end location | ✅ 24h |
-| OSRM | Full driving route | ✅ 1h |
-| **Total** | **≤ 3 calls (1 if cached)** | |
+---
 
-## Quick Start
+## How It Works
+
+### External APIs Used
+
+| Step | Service | Auth Required |
+|------|---------|--------------|
+| Geocode start/end | Nominatim (OpenStreetMap) | No |
+| Driving route | OSRM (Project OSRM) | No |
+| Station geocoding | US Cities CSV (offline) | No |
+
+Both routing and geocoding are completely free with no API keys or accounts required.
+
+### API Calls Per Request
+
+The API is designed to make as few external calls as possible:
+
+- **2 Nominatim calls** to geocode the start and end location (cached for 24 hours each)
+- **1 OSRM call** to fetch the full driving route with geometry (cached for 1 hour)
+
+On repeat requests for the same route, all results are served from cache — **0 external calls**.
+
+### Fuel Stop Selection Algorithm
+
+1. Query the database for all geocoded stations within the route's bounding box.
+2. Simplify the route from ~30,000 waypoints to ~1,100 using a sampling step (1 in 30 points). This preserves geographic accuracy while making spatial math fast.
+3. Project each station onto the simplified route using vectorized NumPy operations. Assign each station a `route_distance_miles` value representing how far along the route it sits.
+4. Discard stations more than 75 miles from the route centerline.
+5. Apply a greedy cheapest-in-range selection:
+   - Start at position 0 with a full 50-gallon tank (500-mile range).
+   - At each step, find all stations reachable within the remaining range.
+   - From those, select the cheapest station from which the journey can still continue.
+   - Fill up to a full tank at each stop.
+   - Repeat until the destination is within the remaining range.
+
+### Performance
+
+| Scenario | Response Time |
+|----------|--------------|
+| First request (no cache) | ~2-3 seconds |
+| Repeated request (cached) | ~70 milliseconds |
+| Fuel optimizer alone | ~150 milliseconds |
+
+---
+
+## Setup
+
+### Prerequisites
+
+- Python 3.11 or higher
+- pip
 
 ### 1. Install dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Set up database
-```bash
-python manage.py migrate
-python manage.py load_fuel_data          # Load 6,967 stations from CSV
-python manage.py geocode_stations        # Geocode using US cities dataset (offline, ~2s)
+### 2. Configure environment
+
+Copy `.env.example` to `.env` (or create `.env` manually):
+
+```env
+SECRET_KEY=your-django-secret-key-here
+DEBUG=True
+ALLOWED_HOSTS=*
 ```
 
-### 3. Run the server
+### 3. Run database migrations
+
+```bash
+python manage.py migrate
+```
+
+### 4. Load fuel station data
+
+This imports the 6,967 stations from the OPIS CSV file into the database:
+
+```bash
+python manage.py load_fuel_data
+```
+
+### 5. Geocode stations
+
+This assigns latitude/longitude to each station using an offline US cities dataset. No API calls are made. The dataset is downloaded automatically on first run:
+
+```bash
+python manage.py geocode_stations
+```
+
+Expected output: approximately 98% of stations geocoded in under 5 seconds.
+
+### 6. Start the development server
+
 ```bash
 python manage.py runserver
 ```
 
-### 4. Make a request
-```bash
-# GET request
-curl "http://localhost:8000/api/route/?start=New+York,+NY&end=Los+Angeles,+CA"
+---
 
-# POST request
+## API Reference
+
+### GET /api/route/
+
+### POST /api/route/
+
+Both methods accept the same parameters. Use GET for simple queries; POST for JSON body requests.
+
+**Request parameters**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `start` | string | Yes | Starting location within the USA (e.g., `New York, NY`) |
+| `end` | string | Yes | Destination location within the USA (e.g., `Los Angeles, CA`) |
+
+**GET example**
+
+```bash
+curl "http://localhost:8000/api/route/?start=New+York,+NY&end=Los+Angeles,+CA"
+```
+
+**POST example**
+
+```bash
 curl -X POST http://localhost:8000/api/route/ \
   -H "Content-Type: application/json" \
   -d '{"start": "Chicago, IL", "end": "Houston, TX"}'
 ```
 
-## API Reference
-
-### `GET /api/route/`
-### `POST /api/route/`
-
-**Request Parameters:**
+**Response fields**
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `start` | string | Starting US location (e.g., "New York, NY") |
-| `end` | string | Destination US location (e.g., "Los Angeles, CA") |
+| `start_location` | string | Resolved start location name |
+| `end_location` | string | Resolved end location name |
+| `total_distance_miles` | float | Total driving distance in miles |
+| `estimated_duration_hours` | float | Estimated drive time in hours |
+| `total_gallons_needed` | float | Total gallons consumed (distance / 10 mpg) |
+| `total_fuel_cost_usd` | float | Total amount spent on fuel across all stops |
+| `average_price_per_gallon` | float | Weighted average fuel price paid |
+| `fuel_stops_count` | integer | Number of fuel stops on the route |
+| `fuel_stops` | array | Ordered list of fuel stop objects (see below) |
+| `interactive_map_url` | string | URL to open the route and stops on an interactive map |
+| `static_map_url` | string | OpenStreetMap URL showing the route bounding box |
+| `route_geometry` | object | GeoJSON LineString of the full driving route |
+| `_meta` | object | Processing stats: time, stations considered, vehicle assumptions |
 
-**Response:**
+**Fuel stop object**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | string | Station name |
+| `address` | string | Street address |
+| `city` | string | City |
+| `state` | string | State abbreviation |
+| `latitude` / `longitude` | float | Station coordinates |
+| `retail_price_per_gallon` | float | Fuel price at this station |
+| `gallons_to_fill` | float | Gallons purchased at this stop |
+| `cost_at_stop` | float | Total cost paid at this stop |
+| `route_distance_miles` | float | Distance from start to this stop along the route |
+| `miles_off_route` | float | How far the station sits from the route centerline |
+
+**Example response (abbreviated)**
 
 ```json
 {
@@ -101,8 +218,6 @@ curl -X POST http://localhost:8000/api/route/ \
   "fuel_stops_count": 12,
   "fuel_stops": [
     {
-      "station_id": 6459,
-      "opis_id": 72445,
       "name": "SHEETZ #639",
       "address": "I-80 Exit 223",
       "city": "Youngstown",
@@ -120,10 +235,10 @@ curl -X POST http://localhost:8000/api/route/ \
   "static_map_url": "https://www.openstreetmap.org/?bbox=...",
   "route_geometry": {
     "type": "LineString",
-    "coordinates": [...]
+    "coordinates": [[-74.006, 40.712], "..."]
   },
   "_meta": {
-    "processing_time_seconds": 0.25,
+    "processing_time_seconds": 0.181,
     "stations_considered": 1264,
     "vehicle_mpg": 10,
     "vehicle_max_range_miles": 500,
@@ -132,44 +247,67 @@ curl -X POST http://localhost:8000/api/route/ \
 }
 ```
 
-## Fuel Optimization Algorithm
+**Error response**
 
-1. **Fetch candidates**: Query SQLite for all geocoded stations within the route's bounding box
-2. **Simplify route**: Sample 1 in 30 waypoints (34K → ~1100 points) for fast spatial math
-3. **Project stations**: Vectorized NumPy nearest-neighbor projection onto route polyline
-4. **Filter corridor**: Keep only stations within ~75 miles of the route
-5. **Greedy selection**:
-   - Start at position 0, full tank (500 mi range)
-   - At each step, find all reachable stations in the next 500 miles
-   - Pick the **cheapest** station from which we can still continue
-   - Fill up to full tank at each stop
-   - Repeat until the destination is within range
+```json
+{
+  "start": ["This field is required."]
+}
+```
+
+---
 
 ## Vehicle Assumptions
-- Max range: **500 miles** (full tank)
-- Fuel economy: **10 MPG**
-- Tank size: **50 gallons** (500 mi ÷ 10 mpg)
+
+| Parameter | Value |
+|-----------|-------|
+| Fuel economy | 10 miles per gallon |
+| Tank size | 50 gallons |
+| Maximum range per tank | 500 miles |
+
+---
 
 ## Management Commands
 
-```bash
-# Load fuel station data from CSV
-python manage.py load_fuel_data [--csv-path path/to/file.csv] [--clear]
+### load_fuel_data
 
-# Geocode stations (offline, uses US cities database)
-python manage.py geocode_stations [--no-resume] [--download]
+Imports the OPIS fuel station CSV into the database.
+
+```bash
+python manage.py load_fuel_data
+python manage.py load_fuel_data --csv-path /path/to/file.csv
+python manage.py load_fuel_data --clear   # wipe existing records first
 ```
 
+### geocode_stations
+
+Assigns coordinates to stations by matching city and state against a US cities dataset. Completely offline.
+
+```bash
+python manage.py geocode_stations
+python manage.py geocode_stations --no-resume   # re-geocode all stations
+python manage.py geocode_stations --download    # force refresh of cities dataset
+```
+
+---
+
 ## Data Sources
-- **Fuel prices**: OPIS Truckstop dataset (provided in `fuel-prices-for-be-assessment.csv`)
-- **Routing**: [OSRM](http://router.project-osrm.org) — free, open-source routing engine
-- **Geocoding (locations)**: [Nominatim](https://nominatim.openstreetmap.org) — free OSM geocoder
-- **Geocoding (stations)**: [US Cities Database](https://github.com/kelvins/US-Cities-Database) — static dataset (no API calls)
+
+| Data | Source |
+|------|--------|
+| Fuel prices | OPIS Truckstop dataset (provided CSV) |
+| Driving routes | [OSRM](http://router.project-osrm.org) |
+| Location geocoding | [Nominatim](https://nominatim.openstreetmap.org) |
+| Station geocoding | [US Cities Database](https://github.com/kelvins/US-Cities-Database) |
+
+---
 
 ## Tech Stack
-- Django 6.1 + Django REST Framework 3.18
-- SQLite (easily swappable to PostgreSQL)
-- NumPy for vectorized spatial math
-- OSRM for routing (free, no API key)
-- Nominatim for location geocoding (free, no API key)
-- File-based cache (Django's built-in)
+
+- Django 6.1
+- Django REST Framework 3.18
+- SQLite (database)
+- NumPy (vectorized spatial math)
+- OSRM (routing)
+- Nominatim (location geocoding)
+- Django file-based cache
