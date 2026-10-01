@@ -1,24 +1,15 @@
-"""
-Django settings for config project.
-"""
-import os
 from pathlib import Path
 import environ
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Read .env file
-env = environ.Env(
-    DEBUG=(bool, False),
-)
+env = environ.Env(DEBUG=(bool, False))
 environ.Env.read_env(BASE_DIR / ".env")
 
 SECRET_KEY = env("SECRET_KEY")
 DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["*"])
 
-# Application definition
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -82,60 +73,37 @@ USE_TZ = True
 STATIC_URL = "static/"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# Django REST Framework
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
         "rest_framework.renderers.BrowsableAPIRenderer",
     ],
-    "DEFAULT_THROTTLE_CLASSES": [
-        "rest_framework.throttling.AnonRateThrottle",
-    ],
-    "DEFAULT_THROTTLE_RATES": {
-        "anon": "60/hour",
-    },
+    "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.AnonRateThrottle"],
+    "DEFAULT_THROTTLE_RATES": {"anon": "60/hour"},
 }
 
-# Routing: OSRM (free, no API key) + Nominatim for geocoding (free, no key)
-# No API keys required!
-
-# Fuel data directory — place any fuel price CSV files here
 DATA_DIR = BASE_DIR / "data"
 FUEL_CSV_PATH = DATA_DIR / "fuel-prices-for-be-assessment.csv"
 
-# Cache: filesystem cache for route results (avoid repeated ORS calls)
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
         "LOCATION": BASE_DIR / ".cache",
-        "TIMEOUT": 3600,  # 1 hour
-        "OPTIONS": {
-            "MAX_ENTRIES": 1000,
-        },
+        "TIMEOUT": 3600,
+        "OPTIONS": {"MAX_ENTRIES": 1000},
     }
 }
 
-# Vehicle constants
 VEHICLE_MAX_RANGE_MILES = 500
 VEHICLE_MPG = 10
-TANK_SIZE_GALLONS = VEHICLE_MAX_RANGE_MILES / VEHICLE_MPG  # 50 gallons
+TANK_SIZE_GALLONS = VEHICLE_MAX_RANGE_MILES / VEHICLE_MPG
 
-# Logging
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {
-        "console": {"class": "logging.StreamHandler"},
-    },
-    "root": {
-        "handlers": ["console"],
-        "level": "INFO",
-    },
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "root": {"handlers": ["console"], "level": "INFO"},
     "loggers": {
-        "route": {
-            "handlers": ["console"],
-            "level": "DEBUG",
-            "propagate": False,
-        },
+        "route": {"handlers": ["console"], "level": "DEBUG", "propagate": False},
     },
 }
