@@ -116,7 +116,7 @@ ALLOWED_HOSTS=*
 ### 3. Run database migrations
 
 ```bash
-python manage.py migrate
+python3 manage.py migrate
 ```
 
 ### 4. Load fuel station data
@@ -124,7 +124,7 @@ python manage.py migrate
 This imports the 6,967 stations from the OPIS CSV file into the database:
 
 ```bash
-python manage.py load_fuel_data
+python3 manage.py load_fuel_data
 ```
 
 ### 5. Geocode stations
@@ -132,7 +132,7 @@ python manage.py load_fuel_data
 This assigns latitude/longitude to each station using an offline US cities dataset. No API calls are made. The dataset is downloaded automatically on first run:
 
 ```bash
-python manage.py geocode_stations
+python3 manage.py geocode_stations
 ```
 
 Expected output: approximately 98% of stations geocoded in under 5 seconds.
@@ -140,7 +140,7 @@ Expected output: approximately 98% of stations geocoded in under 5 seconds.
 ### 6. Start the development server
 
 ```bash
-python manage.py runserver
+python3 manage.py runserver
 ```
 
 ---
@@ -278,13 +278,13 @@ Imports a fuel station CSV into the database. Drop any new CSV file into the `da
 
 ```bash
 # Use the default file (data/fuel-prices-for-be-assessment.csv)
-python manage.py load_fuel_data
+python3 manage.py load_fuel_data
 
 # Load a different CSV from the data/ folder
-python manage.py load_fuel_data --csv-path data/new-prices.csv
+python3 manage.py load_fuel_data --csv-path data/new-prices.csv
 
 # Wipe existing records before loading
-python manage.py load_fuel_data --clear
+python3 manage.py load_fuel_data --clear
 ```
 
 ### geocode_stations
@@ -292,9 +292,9 @@ python manage.py load_fuel_data --clear
 Assigns coordinates to stations by matching city and state against a US cities dataset. Completely offline.
 
 ```bash
-python manage.py geocode_stations
-python manage.py geocode_stations --no-resume   # re-geocode all stations
-python manage.py geocode_stations --download    # force refresh of cities dataset
+python3 manage.py geocode_stations
+python3 manage.py geocode_stations --no-resume   # re-geocode all stations
+python3 manage.py geocode_stations --download    # force refresh of cities dataset
 ```
 
 ---
