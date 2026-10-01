@@ -99,8 +99,9 @@ REST_FRAMEWORK = {
 # Routing: OSRM (free, no API key) + Nominatim for geocoding (free, no key)
 # No API keys required!
 
-# Fuel data CSV path
-FUEL_CSV_PATH = BASE_DIR / "fuel-prices-for-be-assessment.csv"
+# Fuel data directory — place any fuel price CSV files here
+DATA_DIR = BASE_DIR / "data"
+FUEL_CSV_PATH = DATA_DIR / "fuel-prices-for-be-assessment.csv"
 
 # Cache: filesystem cache for route results (avoid repeated ORS calls)
 CACHES = {

@@ -18,6 +18,9 @@ fuel_route_api/                  <- project root
 |   |-- asgi.py
 |   `-- wsgi.py
 |
+|-- data/                        <- fuel price CSV files go here
+|   `-- fuel-prices-for-be-assessment.csv
+|
 |-- route/                       <- main application
 |   |-- management/
 |   |   `-- commands/
@@ -271,12 +274,17 @@ curl -X POST http://localhost:8000/api/route/ \
 
 ### load_fuel_data
 
-Imports the OPIS fuel station CSV into the database.
+Imports a fuel station CSV into the database. Drop any new CSV file into the `data/` folder and point the command at it with `--csv-path`.
 
 ```bash
+# Use the default file (data/fuel-prices-for-be-assessment.csv)
 python manage.py load_fuel_data
-python manage.py load_fuel_data --csv-path /path/to/file.csv
-python manage.py load_fuel_data --clear   # wipe existing records first
+
+# Load a different CSV from the data/ folder
+python manage.py load_fuel_data --csv-path data/new-prices.csv
+
+# Wipe existing records before loading
+python manage.py load_fuel_data --clear
 ```
 
 ### geocode_stations
