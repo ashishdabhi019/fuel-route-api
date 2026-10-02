@@ -110,6 +110,10 @@ def select_fuel_stops(stations: list[dict], total_miles: float) -> list[dict]:
     Greedy cheapest-in-range selection. At each step, pick the lowest-priced
     reachable station from which the journey can still continue, then fill to
     a full tank. Repeat until the destination is within range.
+
+    Detour cost: each station off the main route requires a round-trip detour
+    (exit ramp + return). We deduct those extra miles from the fuel budget so
+    gallons_to_fill and the subsequent reachable range are accurate.
     """
     if not stations:
         return []
@@ -145,8 +149,16 @@ def select_fuel_stops(stations: list[dict], total_miles: float) -> list[dict]:
         # Fall back to any candidate if the valid filter comes up empty (sparse coverage)
         best = min(valid or candidates, key=lambda x: x["retail_price"])
 
-        miles_to_stop = best["route_distance_miles"] - current_pos
-        gallons_remaining = (fuel_remaining - miles_to_stop) / MPG
+        # Miles driven along the main route to reach the exit for this station
+        miles_to_exit = best["route_distance_miles"] - current_pos
+
+        # Round-trip detour: exit → station → return to highway
+        detour_miles = best["perp_distance_miles"] * 2
+
+        # Total miles driven since last fill-up (route miles + detour)
+        total_miles_driven = miles_to_exit + detour_miles
+
+        gallons_remaining = (fuel_remaining - total_miles_driven) / MPG
         gallons_to_fill = max(0, TANK_GALLONS - gallons_remaining)
 
         stops.append({
@@ -163,10 +175,13 @@ def select_fuel_stops(stations: list[dict], total_miles: float) -> list[dict]:
             "cost_at_stop": round(gallons_to_fill * best["retail_price"], 2),
             "route_distance_miles": round(best["route_distance_miles"], 1),
             "miles_off_route": round(best["perp_distance_miles"], 1),
+            "detour_miles_roundtrip": round(detour_miles, 2),
         })
 
         current_pos = best["route_distance_miles"]
-        fuel_remaining = MAX_RANGE_MILES
+        # After filling up, fuel_remaining starts as a full tank minus the detour
+        # miles already burned returning to the highway from this station
+        fuel_remaining = MAX_RANGE_MILES - detour_miles
 
     return stops
 
@@ -187,11 +202,18 @@ def optimize_fuel_stops(waypoints: list[list[float]], bbox: list[float], total_m
         return {"fuel_stops": [], "total_gallons": round(total_miles / MPG, 2), "total_cost_usd": 0, "stations_considered": 0}
 
     fuel_stops = select_fuel_stops(corridor, total_miles)
-    total_cost = sum(s["cost_at_stop"] for s in fuel_stops)
+
+    # Sum all round-trip detours (stations exactly on the route contribute 0)
+    total_detour_miles = round(sum(s["detour_miles_roundtrip"] for s in fuel_stops), 2)
+    total_actual_miles = round(total_miles + total_detour_miles, 1)
+    total_gallons      = round(total_actual_miles / MPG, 2)
+    total_cost         = round(sum(s["cost_at_stop"] for s in fuel_stops), 2)
 
     return {
         "fuel_stops": fuel_stops,
-        "total_gallons": round(total_miles / MPG, 2),
-        "total_cost_usd": round(total_cost, 2),
+        "total_gallons": total_gallons,
+        "total_cost_usd": total_cost,
+        "total_detour_miles": total_detour_miles,
+        "total_actual_miles": total_actual_miles,
         "stations_considered": len(corridor),
     }

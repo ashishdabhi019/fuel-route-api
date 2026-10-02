@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fuel Route Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', 'Segoe UI', sans-serif; background: #0f1117; color: #e8eaf0; height: 100vh; display: flex; flex-direction: column; }
+    header { background: linear-gradient(135deg, #1a1d2e 0%, #12151f 100%); border-bottom: 1px solid #2a2d3e; padding: 14px 24px; display: flex; align-items: center; gap: 20px; flex-shrink: 0; box-shadow: 0 2px 20px rgba(0,0,0,0.5); z-index: 1000; }
+    header .logo { display: flex; align-items: center; gap: 10px; font-size: 1.2rem; font-weight: 700; color: #fff; }
+    header .logo span { font-size: 1.5rem; }
+    .route-label { background: rgba(74,144,217,0.15); border: 1px solid rgba(74,144,217,0.3); border-radius: 8px; padding: 6px 14px; font-size: 0.85rem; color: #7eb8f5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 500px; }
+    .stats { display: flex; gap: 16px; margin-left: auto; flex-wrap: wrap; }
+    .stat { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 6px 14px; text-align: center; }
+    .stat-value { font-size: 0.95rem; font-weight: 700; color: #fff; }
+    .stat-label { font-size: 0.65rem; color: #8889a0; text-transform: uppercase; letter-spacing: 0.04em; }
+    .main { display: flex; flex: 1; overflow: hidden; }
+    .sidebar { width: 300px; min-width: 280px; background: #13161f; border-right: 1px solid #1e2130; display: flex; flex-direction: column; overflow: hidden; }
+    .sidebar-title { padding: 16px 18px 10px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #5c6082; border-bottom: 1px solid #1e2130; }
+    .stops-list { overflow-y: auto; flex: 1; scrollbar-width: thin; scrollbar-color: #2a2d3e transparent; }
+    .stop-card { padding: 12px 18px; border-bottom: 1px solid #1a1d2a; cursor: pointer; transition: background 0.15s; display: flex; gap: 12px; align-items: flex-start; }
+    .stop-card:hover { background: #1c1f2e; }
+    .stop-card.active { background: rgba(74,144,217,0.12); border-left: 3px solid #4a90d9; }
+    .stop-badge { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; flex-shrink: 0; margin-top: 2px; }
+    .stop-badge.start { background: rgba(46,204,113,0.2); color: #2ecc71; border: 1.5px solid #2ecc71; }
+    .stop-badge.end   { background: rgba(231,76,60,0.2);  color: #e74c3c; border: 1.5px solid #e74c3c; }
+    .stop-badge.fuel  { background: rgba(243,156,18,0.2); color: #f39c12; border: 1.5px solid #f39c12; }
+    .stop-info { flex: 1; min-width: 0; }
+    .stop-name { font-size: 0.82rem; font-weight: 600; color: #dde1f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .stop-detail { font-size: 0.72rem; color: #6b6f88; margin-top: 2px; }
+    .stop-price { font-size: 0.8rem; font-weight: 700; color: #f39c12; text-align: right; white-space: nowrap; }
+    #map { flex: 1; z-index: 1; }
+    #loading { position: fixed; inset: 0; background: #0f1117; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; z-index: 9999; }
+    .spinner { width: 48px; height: 48px; border: 4px solid rgba(74,144,217,0.15); border-top-color: #4a90d9; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 1rem; color: #7eb8f5; }
+    .loading-sub  { font-size: 0.8rem; color: #5c6082; }
+    #error-panel { position: fixed; inset: 0; background: #0f1117; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+    #error-panel .err-icon { font-size: 3rem; }
+    #error-panel .err-title { font-size: 1.2rem; font-weight: 700; color: #e74c3c; }
+    #error-panel .err-msg   { font-size: 0.9rem; color: #7880a0; text-align: center; max-width: 400px; }
+    .leaflet-popup-content-wrapper { background: #1a1d2e !important; border: 1px solid #2a2d3e !important; border-radius: 10px !important; box-shadow: 0 8px 32px rgba(0,0,0,0.6) !important; color: #e8eaf0 !important; }
+    .leaflet-popup-tip { background: #1a1d2e !important; }
+    .popup-content { font-family: 'Inter', sans-serif; }
+    .popup-title   { font-size: 0.9rem; font-weight: 700; margin-bottom: 6px; }
+    .popup-row     { font-size: 0.78rem; color: #8889a0; margin: 3px 0; }
+    .popup-row strong { color: #dde1f0; }
+    .popup-price   { font-size: 1rem; font-weight: 700; color: #f39c12; margin-top: 8px; }
+  </style>
+</head>
+<body>
+<div id="loading">
+  <div class="spinner"></div>
+  <div class="loading-text">Loading Fuel Route...</div>
+  <div class="loading-sub">Fetching route and optimizing fuel stops</div>
+</div>
+<div id="error-panel">
+  <div class="err-icon">⚠️</div>
+  <div class="err-title">Route Error</div>
+  <div class="err-msg" id="error-msg">Something went wrong.</div>
+</div>
+<header id="header" style="display:none;">
+  <div class="logo"> Fuel Route</div>
+  <div class="route-label" id="route-label">Loading…</div>
+  <div class="stats" id="stats-bar"></div>
+</header>
+<div class="main" id="main-ui" style="display:none;">
+  <aside class="sidebar">
+    <div class="sidebar-title">Fuel Stops</div>
+    <div class="stops-list" id="stops-list"></div>
+  </aside>
+  <div id="map"></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  var params  = new URLSearchParams(window.location.search);
+  var start   = params.get('start') || '';
+  var end     = params.get('end')   || '';
+  var apiBase = window.location.origin;
+  if (!start || !end) { showError('Missing ?start= and ?end= query parameters.'); return; }
+  var apiUrl = apiBase + '/api/route/?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end);
+  fetch(apiUrl)
+    .then(function(r){ return r.json().then(function(data){ return {ok:r.ok, data:data}; }); })
+    .then(function(res){ if (!res.ok){ showError(JSON.stringify(res.data)); return; } renderUI(res.data); })
+    .catch(function(err){ showError(err.message); });
+
+  function renderUI(data) {
+    hide('loading'); show('header'); show('main-ui');
+    document.getElementById('route-label').textContent = data.start_location + '  →  ' + data.end_location;
+    var detourLabel = data.total_detour_miles > 0
+      ? '(' + data.highway_distance_miles.toLocaleString() + ' hwy + ' + data.total_detour_miles + ' detour)'
+      : '';
+    var stats = [
+      {v: data.total_distance_miles.toLocaleString() + ' mi', l: 'Total Distance', sub: detourLabel},
+      {v: data.estimated_duration_hours.toFixed(1) + ' h',    l: 'Est. Time',      sub: ''},
+      {v: data.total_gallons_needed.toFixed(1) + ' gal',      l: 'Fuel (w/ detours)', sub: ''},
+      {v: '$' + data.total_fuel_cost_usd.toFixed(2),          l: 'Est. Cost',      sub: ''},
+      {v: data.fuel_stops_count,                               l: 'Stops',          sub: ''},
+    ];
+    document.getElementById('stats-bar').innerHTML = stats.map(function(s){
+      return '<div class="stat"><div class="stat-value">' + s.v + '</div>'
+           + '<div class="stat-label">' + s.l + '</div>'
+           + (s.sub ? '<div class="stat-label" style="font-size:0.55rem;opacity:0.6;margin-top:1px;">' + s.sub + '</div>' : '')
+           + '</div>';
+    }).join('');
+
+    var map = L.map('map', {zoomControl: true});
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a>',
+      maxZoom: 16
+    }).addTo(map);
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+      attribution: '',
+      maxZoom: 16,
+      pane: 'shadowPane'
+    }).addTo(map);
+
+    var coords = data.route_geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
+
+    // Glow effect: draw a wider, faded line underneath then the solid line on top
+    L.polyline(coords, {color:'#4a90d9', weight:10, opacity:0.2, lineJoin:'round'}).addTo(map);
+    var poly = L.polyline(coords, {color:'#4a90d9', weight:3.5, opacity:0.95, lineJoin:'round'}).addTo(map);
+
+    // Build a LatLngBounds that includes start, end AND all fuel stops
+    var allBounds = L.latLngBounds([]);
+    allBounds.extend(poly.getBounds());
+    data.fuel_stops.forEach(function(s){ allBounds.extend([s.latitude, s.longitude]); });
+
+    // Fit with generous padding (left offset accounts for the 300px sidebar)
+    map.fitBounds(allBounds, {paddingTopLeft:[320,60], paddingBottomRight:[60,60]});
+
+    function fmt(n) { return n.toFixed(6); }
+
+    function circleIcon(color, label) {
+      return L.divIcon({className:'', html:'<div style="width:32px;height:32px;border-radius:50%;background:'+color+';border:2.5px solid #fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;box-shadow:0 0 0 4px '+color+'44, 0 3px 10px rgba(0,0,0,0.6);">'+label+'</div>', iconSize:[32,32], iconAnchor:[16,16]});
+    }
+    function fuelIcon(num) {
+      return L.divIcon({className:'', html:'<div style="width:28px;height:28px;border-radius:50%;background:#f39c12;border:2.5px solid #fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;box-shadow:0 0 0 3px #f39c1255, 0 2px 8px rgba(0,0,0,0.5);">'+num+'</div>', iconSize:[28,28], iconAnchor:[14,14]});
+    }
+    function coordRow(lat, lon) {
+      return '<div class="popup-row" style="margin-top:6px;font-family:monospace;font-size:0.75rem;background:rgba(255,255,255,0.05);border-radius:4px;padding:4px 6px;">'
+           + '<span style="color:#5c9ff5;">lat</span> <strong>'+fmt(lat)+'</strong> &nbsp; '
+           + '<span style="color:#5c9ff5;">lon</span> <strong>'+fmt(lon)+'</strong></div>';
+    }
+
+    // ── Snap a latlng to the nearest point on the polyline ──
+    function snapToRoute(latlng) {
+      var minDist = Infinity, best = latlng;
+      for (var i = 0; i < coords.length - 1; i++) {
+        var p = map.latLngToLayerPoint(L.latLng(coords[i]));
+        var q = map.latLngToLayerPoint(L.latLng(coords[i+1]));
+        var t = map.latLngToLayerPoint(latlng);
+        var dx = q.x-p.x, dy = q.y-p.y, lenSq = dx*dx+dy*dy;
+        var u = lenSq > 0 ? Math.max(0, Math.min(1, ((t.x-p.x)*dx+(t.y-p.y)*dy)/lenSq)) : 0;
+        var cl = L.point(p.x+u*dx, p.y+u*dy);
+        var d = t.distanceTo(cl);
+        if (d < minDist) { minDist = d; best = map.layerPointToLatLng(cl); }
+      }
+      return best;
+    }
+
+    var startCoords = data.route_geometry.coordinates[0];   // [lon, lat]
+    var startLat = startCoords[1], startLon = startCoords[0];
+    var startLatLng = [startLat, startLon];
+    L.marker(startLatLng, {icon: circleIcon('#2ecc71','S'), zIndexOffset:1000}).addTo(map)
+      .bindPopup('<div class="popup-content">'
+        + '<div class="popup-title">Start — ' + data.start_location + '</div>'
+        + coordRow(startLat, startLon)
+        + '</div>');
+
+    // ── End marker — exact last coordinate of route geometry ──
+    var endCoordsArr = data.route_geometry.coordinates[data.route_geometry.coordinates.length-1];
+    var endLat = endCoordsArr[1], endLon = endCoordsArr[0];
+    var endLatLng = [endLat, endLon];
+    L.marker(endLatLng, {icon: circleIcon('#e74c3c','E'), zIndexOffset:1000}).addTo(map)
+      .bindPopup('<div class="popup-content">'
+        + '<div class="popup-title">End — ' + data.end_location + '</div>'
+        + coordRow(endLat, endLon)
+        + '</div>');
+
+    // ── Fuel stop markers ──
+    // Visual: marker snapped onto the route line (on the road)
+    // Real:   actual station coords shown in popup + small dot + dashed connector
+    var markers = [];
+    var list = document.getElementById('stops-list');
+    list.innerHTML = buildEntry('S','start', data.start_location, fmt(startLat)+', '+fmt(startLon), null, 0);
+
+    data.fuel_stops.forEach(function(stop, i) {
+      var realLatLng  = L.latLng(stop.latitude, stop.longitude);
+      var snapLatLng  = snapToRoute(realLatLng);
+      var detour      = stop.detour_miles_roundtrip || (stop.miles_off_route * 2);
+
+      // Dashed line + dot at the real station GPS location
+      if (stop.miles_off_route > 0.05) {
+        L.polyline([snapLatLng, realLatLng], {
+          color:'#f39c12', weight:1.5, dashArray:'5 4', opacity:0.65
+        }).addTo(map);
+        L.circleMarker(realLatLng, {
+          radius:4, color:'#f39c12', fillColor:'#f39c12', fillOpacity:0.8, weight:1.5
+        }).addTo(map);
+      }
+
+      var m = L.marker(snapLatLng, {icon: fuelIcon(i+1), zIndexOffset:500}).addTo(map)
+        .bindPopup('<div class="popup-content">'
+          + '<div class="popup-title">Stop '+(i+1)+': '+stop.name+'</div>'
+          + '<div class="popup-row"><strong>Address:</strong> '+stop.address+', '+stop.city+', '+stop.state+'</div>'
+          + '<div class="popup-row"><strong>Route position:</strong> '+stop.route_distance_miles.toLocaleString()+' mi</div>'
+          + '<div class="popup-row"><strong>Off highway:</strong> '+stop.miles_off_route+' mi'
+            + (detour > 0 ? ' <span style="color:#f39c12">(+'+detour.toFixed(2)+' mi round-trip counted in fuel)</span>' : '')
+            + '</div>'
+          + coordRow(stop.latitude, stop.longitude)
+          + '<div class="popup-price">$'+stop.retail_price_per_gallon.toFixed(3)+'/gal · Fill '+stop.gallons_to_fill.toFixed(1)+' gal = $'+stop.cost_at_stop.toFixed(2)+'</div>'
+          + '</div>');
+
+      markers.push(m);
+      list.innerHTML += buildEntry(i+1,'fuel', stop.name,
+        stop.city+', '+stop.state+' · '+fmt(stop.latitude)+', '+fmt(stop.longitude),
+        stop.retail_price_per_gallon, i+1);
+    });
+
+    list.innerHTML += buildEntry('E','end', data.end_location, fmt(endLat)+', '+fmt(endLon), null, data.fuel_stops.length+1);
+
+    list.querySelectorAll('.stop-card[data-idx]').forEach(function(card) {
+      card.addEventListener('click', function() {
+        var idx = parseInt(card.dataset.idx, 10);
+        list.querySelectorAll('.stop-card').forEach(function(c){ c.classList.remove('active'); });
+        card.classList.add('active');
+        if (idx === 0) { map.flyTo(startLatLng, 14, {duration:1}); }
+        else if (idx === data.fuel_stops.length+1) { map.flyTo(endLatLng, 14, {duration:1}); }
+        else { var m = markers[idx-1]; map.flyTo(m.getLatLng(), 15, {duration:1}); m.openPopup(); }
+      });
+    });
+  }
+
+  function buildEntry(badge, type, name, detail, price, idx) {
+    var priceHtml = price != null ? '<div class="stop-price">$'+price.toFixed(3)+'/gal</div>' : '';
+    return '<div class="stop-card" data-idx="'+idx+'"><div class="stop-badge '+type+'">'+badge+'</div><div class="stop-info"><div class="stop-name">'+name+'</div>'+(detail?'<div class="stop-detail">'+detail+'</div>':'')+'</div>'+priceHtml+'</div>';
+  }
+
+  function showError(msg) {
+    hide('loading');
+    document.getElementById('error-msg').innerHTML = msg;
+    document.getElementById('error-panel').style.display = 'flex';
+  }
+  function hide(id){ document.getElementById(id).style.display = 'none'; }
+  function show(id){ document.getElementById(id).style.display = ''; }
+})();
+</script>
+</body>
+</html>

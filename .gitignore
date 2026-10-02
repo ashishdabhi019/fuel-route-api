@@ -31,3 +31,4 @@ data/*.csv
 # Geocoding helper dataset (downloaded automatically at setup)
 us_cities.csv
 
+Loom_Demo_Script_Fuel_Route_API.pdf
