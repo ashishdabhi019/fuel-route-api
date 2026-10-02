@@ -18,7 +18,7 @@ fuel_route_api/
 |   `-- wsgi.py
 |
 |-- data/
-|   `-- fuel-prices-for-be-assessment.csv
+|   |-- fuel-prices-for-be-assessment.csv
 |
 |-- route/                       <- main application
 |   |-- management/commands/
