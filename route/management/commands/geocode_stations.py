@@ -11,7 +11,7 @@ from route.models import FuelStation
 logger = logging.getLogger(__name__)
 
 US_CITIES_URL = "https://raw.githubusercontent.com/kelvins/US-Cities-Database/main/csv/us_cities.csv"
-DEFAULT_CITIES_CSV = Path(__file__).resolve().parent.parent.parent.parent / "us_cities.csv"
+DEFAULT_CITIES_CSV = Path(__file__).resolve().parent.parent.parent.parent / "data" / "us_cities.csv"
 
 
 def download_cities_csv(path: Path):

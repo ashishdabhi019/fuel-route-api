@@ -30,3 +30,5 @@ env/
 data/*.csv
 # Geocoding helper dataset (downloaded automatically at setup)
 us_cities.csv
+
+LOOM_SCRIPT.*
