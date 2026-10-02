@@ -227,6 +227,51 @@ python3 manage.py runserver
 http://localhost:8000/api/route/?start=New+York,+NY&end=Los+Angeles,+CA
 ```
 
+**Example Response:**
+
+```json
+{
+  "start_location": "New York, NY",
+  "end_location": "Los Angeles, CA",
+  "total_distance_miles": 3043.7,
+  "highway_distance_miles": 2794.0,
+  "total_detour_miles": 249.65,
+  "estimated_duration_hours": 49.81,
+  "total_gallons_needed": 304.37,
+  "total_fuel_cost_usd": 902.16,
+  "average_price_per_gallon": 2.964,
+  "fuel_stops_count": 12,
+  "fuel_stops": [
+    {
+      "station_id": 6459,
+      "opis_id": 72445,
+      "name": "SHEETZ #639",
+      "address": "I-80 Exit 223",
+      "city": "Youngstown",
+      "state": "OH",
+      "latitude": 41.0986,
+      "longitude": -80.6474,
+      "retail_price_per_gallon": 3.059,
+      "gallons_to_fill": 38.799,
+      "cost_at_stop": 118.68,
+      "route_distance_miles": 380.4,
+      "miles_off_route": 3.8,
+      "detour_miles_roundtrip": 7.57
+    },
+    "... (11 more stops omitted for brevity)"
+  ],
+  "interactive_map_url": "http://localhost:8000/api/map/?start=New+York%2C+NY&end=Los+Angeles%2C+CA",
+  "static_map_url": "https://www.openstreetmap.org/?bbox=-118.243395,34.051518,-74.005737,41.756919&layer=mapnik",
+  "route_geometry": {
+    "coordinates": [
+      [ -74.005737, 40.712118 ],
+      [ -74.005758, 40.712113 ],
+      "..."
+    ]
+  }
+}
+```
+
 **Chicago to Miami (POST):**
 
 ```bash
