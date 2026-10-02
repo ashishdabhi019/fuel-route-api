@@ -32,3 +32,4 @@ data/*.csv
 us_cities.csv
 
 LOOM_SCRIPT.*
+FOLDER_TOUR_SCRIPT.*
