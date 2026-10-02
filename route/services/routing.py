@@ -6,7 +6,8 @@ logger = logging.getLogger(__name__)
 
 OSRM_BASE_URL = "http://router.project-osrm.org"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-# Nominatim requires a non-empty User-Agent or it will reject requests
+
+# Nominatim requires a User-Agent header, otherwise it rejects the request
 NOMINATIM_HEADERS = {
     "User-Agent": "FuelRouteAPI/1.0",
     "Accept-Language": "en",
@@ -14,7 +15,7 @@ NOMINATIM_HEADERS = {
 
 
 def get_coordinates_from_location(location_name: str) -> tuple[float, float]:
-    """Geocode a US location string. Returns (longitude, latitude). Cached 24h."""
+    """Geocode a US city/state string to (longitude, latitude). Result is cached for 24 hours."""
     cache_key = f"geocode_{location_name.lower().strip().replace(' ', '_').replace(',', '')}"
     cached = cache.get(cache_key)
     if cached:
@@ -45,8 +46,9 @@ def get_coordinates_from_location(location_name: str) -> tuple[float, float]:
 
 def get_route(start_location: str, end_location: str) -> dict:
     """
-    Fetch a driving route from OSRM between two US locations.
-    Makes at most 3 external calls (2 geocode + 1 route), all cached.
+    Returns a driving route between two US locations using OSRM.
+    Makes at most 3 external calls (2 geocodes + 1 route), all cached.
+    Geocodes are cached 24 hours, routes for 1 hour.
     """
     cache_key = f"route_{start_location}_{end_location}".lower().replace(" ", "_").replace(",", "")
     cached = cache.get(cache_key)
@@ -57,7 +59,6 @@ def get_route(start_location: str, end_location: str) -> dict:
     start_lon, start_lat = get_coordinates_from_location(start_location)
     end_lon, end_lat = get_coordinates_from_location(end_location)
 
-    # OSRM expects coordinates as lon,lat pairs separated by semicolons
     url = f"{OSRM_BASE_URL}/route/v1/driving/{start_lon},{start_lat};{end_lon},{end_lat}"
     resp = requests.get(
         url,
@@ -76,7 +77,7 @@ def get_route(start_location: str, end_location: str) -> dict:
     lats = [c[1] for c in coordinates]
 
     result = {
-        "distance_miles": route["distance"] * 0.000621371,  # meters to miles
+        "distance_miles": route["distance"] * 0.000621371,  # convert meters to miles
         "duration_seconds": route["duration"],
         "geometry": route["geometry"],
         "waypoints": coordinates,

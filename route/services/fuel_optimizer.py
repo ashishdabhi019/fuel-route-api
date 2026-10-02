@@ -11,15 +11,18 @@ logger = logging.getLogger(__name__)
 MAX_RANGE_MILES = settings.VEHICLE_MAX_RANGE_MILES
 MPG = settings.VEHICLE_MPG
 TANK_GALLONS = settings.TANK_SIZE_GALLONS
+
+# Only look at stations within this lateral distance of the route
 CORRIDOR_MILES = 75
 
-# OSRM returns ~30 waypoints per mile for US highways. Sampling every 30th point
-# gives us roughly one point per mile — accurate enough for station matching and
-# about 30x faster than processing the full geometry.
+# OSRM returns tens of thousands of coordinates for long trips.
+# Sampling every 30th point gives roughly one point per mile, which
+# is more than enough precision for matching stations to the route.
 ROUTE_SAMPLE_RATE = 30
 
 
 def haversine_miles(lon1: float, lat1: float, lon2: float, lat2: float) -> float:
+    """Calculates the straight-line distance in miles between two GPS coordinates."""
     R = 3958.8
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
@@ -31,16 +34,18 @@ def haversine_miles(lon1: float, lat1: float, lon2: float, lat2: float) -> float
 
 
 def simplify_route(waypoints: list[list[float]]) -> list[list[float]]:
+    """Reduces the route to roughly one point per mile for faster processing."""
     if len(waypoints) <= ROUTE_SAMPLE_RATE * 2:
         return waypoints
     indices = list(range(0, len(waypoints), ROUTE_SAMPLE_RATE))
-    # Always include the last point so the cumulative distance reaches the true end
+    # Make sure the final destination point is always included
     if indices[-1] != len(waypoints) - 1:
         indices.append(len(waypoints) - 1)
     return [waypoints[i] for i in indices]
 
 
 def build_cumulative_distances(waypoints: list[list[float]]) -> np.ndarray:
+    """Builds a running total of miles at each point along the route."""
     cumulative = np.zeros(len(waypoints))
     for i in range(1, len(waypoints)):
         a, b = waypoints[i - 1], waypoints[i]
@@ -54,9 +59,9 @@ def project_stations_onto_route(
     stations: list[dict],
 ) -> list[dict]:
     """
-    For each station, find the nearest point on the simplified route and assign
-    a route_distance_miles value. Stations beyond CORRIDOR_MILES are dropped.
-    Returns stations sorted by position along the route.
+    Finds the nearest route point for every station and records how far along
+    the route that point is. Stations further than CORRIDOR_MILES from the
+    route are dropped. Returns the list sorted by route position.
     """
     if not stations or not waypoints:
         return []
@@ -69,11 +74,10 @@ def project_stations_onto_route(
     for station in stations:
         slat, slon = station["latitude"], station["longitude"]
         dlat = wp_lats - slat
-        # Longitude degrees shrink as you move away from the equator, so we scale
-        # by cos(lat) to make the east-west distances comparable to north-south ones.
+        # Scale longitude by cos(lat) so east-west and north-south distances are comparable
         dlon = (wp_lons - slon) * math.cos(math.radians(slat))
         nearest_idx = int(np.argmin(dlat ** 2 + dlon ** 2))
-        # Convert from degrees to miles (1 degree latitude ≈ 69 miles)
+        # One degree of latitude is about 69 miles
         perp_miles = math.sqrt(float(dlat[nearest_idx] ** 2 + dlon[nearest_idx] ** 2)) * 69.0
 
         if perp_miles > CORRIDOR_MILES:
@@ -89,9 +93,9 @@ def project_stations_onto_route(
 
 
 def get_stations_in_bbox(bbox: list[float]) -> list[dict]:
+    """Pulls all geocoded stations from the database within the route bounding box."""
     min_lon, min_lat, max_lon, max_lat = bbox
-    # Add a 0.5-degree buffer (~35 miles) so we don't miss stations right at the
-    # edge of the bounding box, especially on diagonal routes.
+    # Small buffer so we don't miss stations right on the edge of the bounding box
     buffer = 0.5
     qs = FuelStation.objects.filter(
         geocoded=True,
@@ -107,20 +111,20 @@ def get_stations_in_bbox(bbox: list[float]) -> list[dict]:
 
 def select_fuel_stops(stations: list[dict], total_miles: float) -> list[dict]:
     """
-    Greedy cheapest-in-range selection. At each step, pick the lowest-priced
-    reachable station from which the journey can still continue, then fill to
-    a full tank. Repeat until the destination is within range.
+    Greedy cheapest-in-range selection algorithm.
 
-    The assignment specifies: total fuel cost = highway_distance / 10 MPG × price.
-    Detour info is recorded per stop for reference but does not affect the
-    fuel budget or reported totals.
+    Starting from mile 0, find every station reachable on the current tank,
+    filter out any station that would leave us stranded with no way to continue,
+    then pick the cheapest one and fill up to a full tank. Repeat until the
+    destination is within range.
+
+    Total cost is based on highway distance / 10 MPG as specified in the assessment.
     """
     if not stations:
         return []
 
     stops = []
     current_pos = 0.0
-    # Track fuel consumed along the highway route only (ignoring detour miles)
     fuel_remaining = MAX_RANGE_MILES
 
     while current_pos + fuel_remaining < total_miles:
@@ -135,9 +139,8 @@ def select_fuel_stops(stations: list[dict], total_miles: float) -> list[dict]:
             logger.warning(f"No stations between {current_pos:.0f} and {reachable_limit:.0f} miles")
             break
 
-        # Filter to stations we can actually continue from — i.e. the destination
-        # or at least one more station is reachable after stopping there.
-        # Without this, we might pick a cheap station that leaves us stranded.
+        # Only pick a station if we can actually continue from it — either the
+        # destination or at least one more station must be reachable from there.
         valid = [
             s for s in candidates
             if s["route_distance_miles"] + MAX_RANGE_MILES >= total_miles
@@ -147,14 +150,12 @@ def select_fuel_stops(stations: list[dict], total_miles: float) -> list[dict]:
             )
         ]
 
-        # Fall back to any candidate if the valid filter comes up empty (sparse coverage)
+        # If the valid filter is empty (very sparse coverage), fall back to all candidates
         best = min(valid or candidates, key=lambda x: x["retail_price"])
 
-        # Highway miles driven since last stop (detour not counted against fuel budget)
         miles_to_stop = best["route_distance_miles"] - current_pos
         detour_miles = best["perp_distance_miles"] * 2
 
-        # Gallons used on the highway leg only
         gallons_used = miles_to_stop / MPG
         gallons_remaining = (fuel_remaining / MPG) - gallons_used
         gallons_to_fill = max(0, TANK_GALLONS - gallons_remaining)
@@ -177,19 +178,23 @@ def select_fuel_stops(stations: list[dict], total_miles: float) -> list[dict]:
         })
 
         current_pos = best["route_distance_miles"]
-        # Full tank after fill-up; reachable range resets to max
         fuel_remaining = MAX_RANGE_MILES
 
     return stops
 
 
 def optimize_fuel_stops(waypoints: list[list[float]], bbox: list[float], total_miles: float) -> dict:
+    """
+    Main entry point. Fetches nearby stations, simplifies the route geometry,
+    projects stations onto the route, runs the greedy selection, and returns
+    the stops along with the total gallons and cost for the trip.
+    """
     raw_stations = get_stations_in_bbox(bbox)
     if not raw_stations:
         return {"fuel_stops": [], "total_gallons": round(total_miles / MPG, 2), "total_cost_usd": 0, "stations_considered": 0}
 
     simplified = simplify_route(waypoints)
-    logger.info(f"Route: {len(waypoints)} -> {len(simplified)} waypoints")
+    logger.info(f"Route: {len(waypoints)} -> {len(simplified)} waypoints after sampling")
 
     cumulative = build_cumulative_distances(simplified)
     corridor = project_stations_onto_route(simplified, cumulative, raw_stations)
@@ -200,10 +205,9 @@ def optimize_fuel_stops(waypoints: list[list[float]], bbox: list[float], total_m
 
     fuel_stops = select_fuel_stops(corridor, total_miles)
 
-    # Total gallons = highway distance / 10 MPG (as specified in the assessment)
-    # Detour info is shown per stop for reference but not added to the total
+    # Total gallons = highway distance / 10 MPG, total cost = sum of what we paid at each stop
     total_gallons = round(total_miles / MPG, 2)
-    total_cost    = round(sum(s["cost_at_stop"] for s in fuel_stops), 2)
+    total_cost = round(sum(s["cost_at_stop"] for s in fuel_stops), 2)
 
     return {
         "fuel_stops": fuel_stops,
