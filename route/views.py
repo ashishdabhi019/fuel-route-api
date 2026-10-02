@@ -51,17 +51,12 @@ class FuelRouteView(APIView):
         fuel_stops    = result["fuel_stops"]
         total_gallons = result["total_gallons"]
         total_cost    = result["total_cost_usd"]
-        total_detour  = result.get("total_detour_miles", 0)
-        total_actual  = result.get("total_actual_miles", round(route["distance_miles"], 1))
         avg_price     = round(total_cost / total_gallons, 4) if total_gallons else 0
 
         return Response({
             "start_location": route["start_location"],
             "end_location": route["end_location"],
-            # total_distance_miles = highway miles + all round-trip detours to stations
-            "total_distance_miles": total_actual,
-            "highway_distance_miles": round(route["distance_miles"], 1),
-            "total_detour_miles": total_detour,
+            "total_distance_miles": round(route["distance_miles"], 1),
             "estimated_duration_hours": round(route["duration_seconds"] / 3600, 2),
             "total_gallons_needed": total_gallons,
             "total_fuel_cost_usd": total_cost,
